@@ -1,0 +1,31 @@
+Yubico-bitcoin-python
+---------------------
+Python client library for communicating with the ykneo-bitcoin applet for the 
+YubiKey NEO.
+
+This library exposes the Bitcoin BIP32 functionality that ykneo-bitcoin 
+provides. It can be used to implement YubiKey NEO support for bitcoin wallets.
+
+Using
+-----
+Besides being used as a library, yubico-bitcoin-python provies an executable
+interactive command line tool: ykneo-bitcoin-cli
+This tool can be used to configure the ykneo-bitcoin applet, get public keys,
+create signatures, etc. To run, simply invoke:
+
+    ykneo-bitcoin-cli
+
+
+Dependencies
+------------
+Yubico-bitcoin-python requires the following packages:
+
+    pyscard (https://pypi.python.org/pypi/pyscard).
+
+    
+Installing
+----------
+To install, run:
+
+    python setup.py install
+
