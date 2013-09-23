@@ -1,0 +1,7 @@
+Author: Yubico
+Basename: yubico-bitcoin-python
+Homepage: http://opensource.yubico.com/yubico-bitcoin-python/
+License: BSD-2-Clause
+Name: yubico-bitcoin-python
+Project: yubico-bitcoin-python
+Summary: Python client library and command line tool for communicating with the ykneo-bitcoin applet for the YubiKey NEO
