@@ -6,6 +6,7 @@ YubiKey NEO.
 This library exposes the Bitcoin BIP32 functionality that ykneo-bitcoin 
 provides. It can be used to implement YubiKey NEO support for bitcoin wallets.
 
+
 Using
 -----
 Besides being used as a library, yubico-bitcoin-python provies an executable
