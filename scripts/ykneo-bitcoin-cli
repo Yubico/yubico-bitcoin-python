@@ -1,0 +1,238 @@
+#!/usr/bin/python
+# Copyright (c) 2013 Yubico AB
+# All rights reserved.
+#
+#   Redistribution and use in source and binary forms, with or
+#   without modification, are permitted provided that the following
+#   conditions are met:
+#
+#    1. Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
+#    2. Redistributions in binary form must reproduce the above
+#       copyright notice, this list of conditions and the following
+#       disclaimer in the documentation and/or other materials provided
+#       with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+# COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
+import argparse
+import cmd
+from getpass import getpass
+from yubico_bitcoin import open_key
+from yubico_bitcoin.exc import PINModeLockedException, IncorrectPINException
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='ykneo-bitcoin command line interface',
+        add_help=True,
+        # formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument('-r', '--reader', nargs='?',
+                        default='.*Yubikey NEO.*',
+                        help='Card reader')
+    return parser.parse_args()
+
+
+def get_pin(loop, line, admin):
+    while True:
+        pin = getpass("Enter %s PIN:" % ('admin' if admin else 'user'))
+        try:
+            if admin:
+                loop.neo.unlock_admin(pin)
+            else:
+                loop.neo.unlock_user(pin)
+            return loop.onecmd(line)
+        except IncorrectPINException as e:
+            if e.tries_remaining == 0:
+                raise Exception('PIN blocked!')
+            print 'Wrong PIN! Tries left: %d' % e.tries_remaining
+
+
+commands = {}
+
+
+def arg(*args, **kwargs):
+    return {'args': args, 'kwargs': kwargs}
+
+
+def command(name, desc, args=[]):
+    parser = argparse.ArgumentParser(name, description=desc, add_help=False)
+    for d in args:
+        pargs = d['args']
+        kwargs = d['kwargs']
+        parser.add_argument(*pargs, **kwargs)
+    commands[name] = parser
+
+# COMMANDS
+
+command(
+    'get_pub',
+    "Get the public key the given path relative from the stored key.",
+    [
+        arg('path',
+            help="Path to key from stored key in BIP32 notation: eg. 0/1'/2"),
+    ]
+)
+
+command(
+    'sign',
+    "Signs the given 32-byte data using the subkey of the given index.",
+    [
+        arg('path',
+            help="Path to key from stored key in BIP32 notation: eg. 0/1'/2"),
+        arg('data', help="A 32 byte hex string to sign.")
+    ]
+)
+
+command(
+    'set_pin',
+    "Sets the user or admin PIN",
+    [
+        arg('-a', '--admin', action="store_true",
+            help="Set the admin PIN (defaults to user)")
+    ]
+)
+
+command(
+    'generate',
+    "Randomly generate a new master key pair on the device. "
+    "This will overwrite any existing key pair on the device.",
+    [
+        arg('-t', '--testnet', action='store_true',
+            help='Generate a key for testnet'),
+        arg('-r', '--return_key', action='store_true',
+            help='Return the generated key'),
+        arg('-e', '--export', action='store_true',
+            help='Allow export of the public key'),
+    ]
+)
+
+command(
+    'import',
+    "Import an extended key pair. The key pair is given as a BIP 32 "
+    "formatted extended private key, in hex. Importing a key will overwrite "
+    "any previously imported/generated key pair.",
+    [
+        arg('private_key', help='The private key to import'),
+        arg('-e', '--export', action='store_true',
+            help='Allow export of the public key'),
+    ]
+)
+
+command(
+    'export',
+    "Exports the extended public key stored on the device. This can only be "
+    "done if the allow_export flag was set during key pair "
+    "generation/import. The public key is exported as a BIP 32 formatted "
+    "extended public key, in hex.",
+)
+
+command(
+    'reset_user_pin',
+    "Sets the user PIN and unblocks it (if blocked) as well as resets the "
+    "retry counter."
+)
+
+
+class CmdLoop(cmd.Cmd):
+
+    """
+    ykneo-bitcoin command line utility.
+    """
+
+    intro = "ykneo-bitcoin command line utility."
+
+    def __init__(self, neo):
+        cmd.Cmd.__init__(self)
+        self.neo = neo
+        for name, command in commands.items():
+            setattr(self.__class__, 'help_%s' % name, command.print_help)
+
+    def onecmd(self, line):
+        try:
+            return cmd.Cmd.onecmd(self, line)
+        except PINModeLockedException as e:
+            get_pin(self, line, e.admin)
+        except Exception as e:
+            print '*** %s: %s' % (e.__class__.__name__, e)
+        except SystemExit:  # Wrong args, don't exit the command loop.
+            pass
+
+    def do_EOF(self, line):
+        del self.neo
+        return True
+
+    def do_exit(self, line):
+        """
+        Exits the application.
+        Usage: "exit"
+        """
+        return self.do_EOF(line)
+
+    def do_get_pub(self, line):
+        args = commands['get_pub'].parse_args(line.split())
+        print self.neo.get_public_key(args.path).encode('hex')
+
+    def do_sign(self, line):
+        args = commands['sign'].parse_args(line.split())
+        print self.neo.sign(args.path, args.data.decode('hex')).encode('hex')
+
+    def do_set_pin(self, line):
+        args = commands['set_pin'].parse_args(line.split())
+        print "Set %s PIN." % ('admin' if args.admin else 'user')
+        old_pin = getpass("Enter current PIN:")
+        new_pin = getpass("Enter new PIN:")
+        ver_pin = getpass("Re-enter new PIN:")
+        if new_pin != ver_pin:
+            raise ValueError("PINs did not match!")
+        if args.admin:
+            self.neo.set_admin_pin(old_pin, new_pin)
+        else:
+            self.neo.set_user_pin(old_pin, new_pin)
+
+    def do_generate(self, line):
+        args = commands['generate'].parse_args(line.split())
+        resp = self.neo.generate_master_key_pair(args.export, args.return_key,
+                                                 args.testnet)
+        if args.return_key:
+            print resp.encode('hex')
+
+    def do_import(self, line):
+        args = commands['import'].parse_args(line.split())
+        self.neo.import_extended_key_pair(args.private_key.decode('hex'),
+                                          args.export)
+        print 'Key imported!'
+
+    def do_export(self, line):
+        print self.neo.export_extended_public_key().encode('hex')
+
+    def do_reset_user_pin(self, line):
+        new_pin = getpass("Enter new user PIN:")
+        ver_pin = getpass("Re-enter new user PIN:")
+        if new_pin != ver_pin:
+            raise ValueError("PINs did not match!")
+        self.neo.reset_user_pin(new_pin)
+        print 'User PIN has been reset.'
+
+
+def main():
+    args = parse_args()
+    neo = open_key(args.reader)
+    loop = CmdLoop(neo)
+    loop.cmdloop()
+
+
+if __name__ == '__main__':
+    main()
