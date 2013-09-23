@@ -38,7 +38,7 @@ setup(
     url='https://github.com/Yubico/yubico-bitcoin-python',
     license='BSD 2 clause',
     packages=['yubico_bitcoin'],
-    scripts=['script/ykneo-bitcoin-cli'],
+    scripts=['scripts/ykneo-bitcoin-cli'],
     include_package_data=True,
     setup_requires=['nose>=1.0'],
     install_requires=['pyscard'],
